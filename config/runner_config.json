@@ -1,0 +1,15 @@
+{
+  "symbol": "XAUUSD_o",
+  "lot": 0.01,
+  "mode": "csv",
+  "csv_path": "data/XAUUSD_M1_Cleaned_Data.csv",
+  "sleep_seconds": 0.5,
+
+  "mt5": {
+    "login": 90875788,
+    "password": "Mohsen1364!",
+    "server": "LiteFinance-MT5-Demo",
+    "path": "C:/Program Files/MetaTrader 5/terminal64.exe",
+    "timeout": 5000
+  }
+}

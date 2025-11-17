@@ -1,209 +1,128 @@
-import time
-import traceback
-from datetime import datetime
+# AutoEngine_M1.py
+# نسخه کامل با اتصال 100% به X6
 
-from Engine.Core.X8_MT5_Connector import MT5Connector
-from Engine.Core.X8_6_MarketWeighted_SignalAnalyzer import MarketWeightedSignalAnalyzer
-from Engine.Core.X8_8_Dynamic_Trade_Allocator import DynamicTradeAllocator
-from Engine.Core.X8_4_RL_Core import RLCore
+from Engine.Core.X6.X6_Master import X6_Master
 
 
-class AutoEngineM1:
+class AutoEngine_M1:
 
-    def __init__(self):
+    def __init__(self, connector, allocator, logger):
+        self.connector = connector
+        self.allocator = allocator
+        self.logger = logger
 
-        print("✅ AutoEngine_M1 initialized")
+        # موتور تحلیلگر X6
+        self.x6 = X6_Master()
 
-        # ---------------------------------------------------------
-        # PARAMETERS
-        # ---------------------------------------------------------
-        self.symbol = "XAUUSD_o"
-        self.timeframe = 1
-        self.direction_threshold = 0.45          # Market score threshold
-        self.run_interval = 1                    # seconds
+        # آستانه جهت‌دهی
+        self.direction_threshold = 0.15
 
-        # ---------------------------------------------------------
-        # CONNECTOR
-        # ---------------------------------------------------------
-        self.mt5 = MT5Connector()                # ✅ AUTO login handled inside
-        self.mt5.select_symbol(self.symbol)      # ✅ Symbol activation
-
-        # ---------------------------------------------------------
-        # MODULES
-        # ---------------------------------------------------------
-        self.analyzer = MarketWeightedSignalAnalyzer()
-        self.allocator = DynamicTradeAllocator()
-        self.rl = RLCore(learning_rate=0.1, discount_factor=0.9)
-
-        # RL state tracking
-        self.prev_state = None
-        self.prev_action = None
-
-
-    # ======================================================================
-    # ✅ FETCH CANDLE FROM MT5
-    # ======================================================================
-    def get_latest_candle(self):
-        candle = self.mt5.get_latest_candle(self.symbol)
-        return candle
-
-
-    # ======================================================================
-    # ✅ RL STATE BUILDER (must be hashable → tuple)
-    # ======================================================================
-    def build_state(self, candle, market_score):
-
-        # Extract values safely
-        ms = market_score.get("market_score", 0.0)
-        momentum = market_score.get("momentum", 0.0)
-        direction = market_score.get("direction", "hold")
-
-        return (
-            round(candle["close"], 2),
-            round(candle["volume"], 2),
-            round(ms, 3),                 # ✅ FIXED: use float not dict
-            round(momentum, 3),           # ✅ include momentum
-            1 if direction == "buy" else -1 if direction == "sell" else 0
-        )
-
-
-
-    # ======================================================================
-    # ✅ MARKET DECISION LOGIC
-    # ======================================================================
-    def decide_direction(self, market_score):
-
-        # Extract individual values
-        ms = market_score.get("market_score", 0.0)
-        momentum = market_score.get("momentum", 0.0)
-        direction_hint = market_score.get("direction", "hold")
-
-        # ✅ Enhanced logic
-        # 1. If market score high enough → buy/sell
-        if ms >= self.direction_threshold:
-            return "buy"
-        elif ms <= -self.direction_threshold:
-            return "sell"
-
-        # 2. If momentum strongly positive/negative
-        if momentum >= 0.6:
-            return "buy"
-        if momentum <= -0.6:
-            return "sell"
-
-        # 3. Otherwise fallback to MWSA direction
-        return direction_hint
-
-    # ======================================================================
-    # ✅ ORDER EXECUTION HANDLER
-    # ======================================================================
-    def execute_order(self, direction, lot):
-
-        if direction == "BUY":
-            print("🚀 Sending BUY...")
-            return self.mt5.send_order(self.symbol, "BUY", lot)
-
-        if direction == "SELL":
-            print("🔻 Sending SELL...")
-            return self.mt5.send_order(self.symbol, "SELL", lot)
-
-        return None
-
-
-    # ======================================================================
-    # ✅ MAIN LOOP
-    # ======================================================================
-    def process_cycle(self):
-
+    # ----------------------------------------------------------------------
+    # تحلیل بازار: فراخوانی X6
+    # ----------------------------------------------------------------------
+    def analyze_market(self, candle):
         try:
-            # ---------------------------------------------------------
-            # Grab last candle
-            # ---------------------------------------------------------
-            candle = self.get_latest_candle()
-            if candle is None:
-                print("⚠️ No candle data received. Skipping cycle.")
-                return
+            return self.x6.run(candle)
+        except Exception as e:
+            self.logger.error(f"X6 analyze error: {e}")
+            return {
+                "x6_score": 0.0,
+                "feature_vector": [],
+                "diagnostics": {}
+            }
 
-            close = candle["close"]
-            volume = candle["volume"]
+    # ----------------------------------------------------------------------
+    # ساخت state برای سیستم یادگیری و تشخیص
+    # ----------------------------------------------------------------------
+    def build_state(self, x6_output):
+        try:
+            score = float(x6_output.get("x6_score", 0.0))
+            fv = x6_output.get("feature_vector", [])
+            diag = x6_output.get("diagnostics", {})
+            regime = diag.get("regime", "رنج")
 
-            # ---------------------------------------------------------
-            # Analyzer computes market score
-            # ---------------------------------------------------------
-            market_score = self.analyzer.compute(close, volume)
-            print(f"📊 Market Score: {market_score}")
+            # کدگذاری عددی رژیم بازار
+            regime_code = {
+                "روند قوی": 1,
+                "نوسانی": 0.5,
+                "رنج": 0,
+                "انتقالی": -0.5
+            }.get(regime, 0)
 
-            # ---------------------------------------------------------
-            # Build RL state
-            # ---------------------------------------------------------
-            state = self.build_state(candle, market_score)
-
-            # ---------------------------------------------------------
-            # Decide direction (BUY / SELL / HOLD)
-            # ---------------------------------------------------------
-            direction = self.decide_direction(market_score)
-            print(f"🎯 Direction Decision: {direction}")
-
-            # ---------------------------------------------------------
-            # Use allocator to determine lot & action type
-            # ---------------------------------------------------------
-            allocation = self.allocator.allocate(
-                 market_score["market_score"],   # ✅ FIXED
-                 direction,
-                 candle["close"]
-)
-
-            print(f"📦 Allocation: {allocation}")
-
-            # ---------------------------------------------------------
-            # Execute trade if needed
-            # ---------------------------------------------------------
-            order_result = None
-
-            if allocation["type"] in ["buy", "sell"]:
-                order_result = self.execute_order(
-                    direction=allocation["type"].upper(),
-                    lot=allocation["lot"]
-                )
-
-            # ---------------------------------------------------------
-            # RL Update for last cycle
-            # ---------------------------------------------------------
-            reward = 0
-            if order_result and order_result.retcode == 10009:  # TRADE_RETCODE_DONE
-                reward = 1
-            elif allocation["type"] == "hold":
-                reward = 0.05
-            else:
-                reward = -0.1
-
-            if self.prev_state is not None:
-                self.rl.update_q(self.prev_state, self.prev_action, reward, state)
-
-            self.prev_state = state
-            self.prev_action = direction
+            return (round(score, 3), fv, regime_code)
 
         except Exception as e:
-            print(f"❌ Error in cycle: {e}")
-            traceback.print_exc()
+            self.logger.error(f"state build error: {e}")
+            return (0.0, [], 0)
 
+    # ----------------------------------------------------------------------
+    # تصمیم‌گیری جهت حرکت
+    # ----------------------------------------------------------------------
+    def decide_direction(self, x6_output):
+        try:
+            score = float(x6_output.get("x6_score", 0.0))
+            diag = x6_output.get("diagnostics", {})
 
-    # ======================================================================
-    # ✅ LOOP RUNNER
-    # ======================================================================
-    def run(self):
+            mmt = diag.get("momentum", 0)
+            coherence = diag.get("coherence", 0)
+            regime = diag.get("regime", "رنج")
 
-        print("✅ AutoEngine M1 is now running...")
+            # تقویت‌کننده جهت بر اساس انسجام + رژیم
+            bias = 0
+            if regime == "روند قوی":
+                bias += 0.10
+            if coherence > 0.6:
+                bias += 0.05
 
-        while True:
-            self.process_cycle()
-            time.sleep(self.run_interval)
+            adjusted = score + bias
 
+            if adjusted >= self.direction_threshold:
+                return "buy"
+            elif adjusted <= -self.direction_threshold:
+                return "sell"
+            else:
+                return "hold"
 
+        except Exception as e:
+            self.logger.error(f"direction decide error: {e}")
+            return "hold"
 
-# ======================================================================
-# ✅ ENTRY POINT
-# ======================================================================
-if __name__ == "__main__":
-    engine = AutoEngineM1()
-    engine.run()
+    # ----------------------------------------------------------------------
+    # چرخه کامل پردازش M1
+    # ----------------------------------------------------------------------
+    def process_cycle(self):
+
+        # 1. دریافت کندل از MT5
+        candle = self.connector.get_latest_candle()
+        if not candle:
+            self.logger.warning("No candle received.")
+            return None
+
+        # 2. تحلیل توسط X6
+        x6_output = self.analyze_market(candle)
+
+        # 3. تصمیم‌گیری جهت
+        direction = self.decide_direction(x6_output)
+
+        # 4. تخصیص بنابراین output جدید X6
+        try:
+            allocation = self.allocator.allocate(
+                score=float(x6_output.get("x6_score", 0.0)),
+                risk_factor=float(x6_output["diagnostics"].get("risk_factor", 1.0))
+            )
+        except Exception as e:
+            self.logger.error(f"Allocator error: {e}")
+            allocation = 0.0
+
+        # 5. ساخت state برای RL یا لاگ
+        state = self.build_state(x6_output)
+
+        # 6. خروجی نهایی چرخه
+        return {
+            "candle": candle,
+            "direction": direction,
+            "allocation": allocation,
+            "x6_score": x6_output.get("x6_score"),
+            "state": state,
+            "diagnostics": x6_output.get("diagnostics", {})
+        }
