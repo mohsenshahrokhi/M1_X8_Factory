@@ -1,0 +1,461 @@
+📜 سند مرجع رسمی NDS Core
+Quant Decision Fabric – سیستم X6
+----------------------------------
+
+عنوان سند:
+قرارداد رسمی هسته NDS (NDS Core)
+
+وضعیت سند:
+نهایی (Frozen Architecture)
+
+نقش سند:
+مرجع الزام‌آور برای Strategy، Risk، RL، Orchestrator و Execution
+
+این سند «توضیح» نیست؛ «قانون» است.
+
+
+==============================
+۱. تعریف رسمی NDS Core
+==============================
+
+NDS Core یک موتور «اجازه‌دهی تصمیم» است، نه تولید سیگنال.
+
+NDS به این سؤال پاسخ می‌دهد:
+«آیا بازار، از نظر ساختاری، هندسی، فشاری و ظرفیتی اجازه اجرای تصمیم را دارد یا خیر؟»
+
+NDS:
+- BUY / SELL صادر نمی‌کند
+- جهت‌دهی نمی‌دهد
+- نقطه ورود تعیین نمی‌کند
+
+بلکه:
+- قابلیت معامله‌پذیری (Tradability) را تأیید یا رد می‌کند
+- Style مجاز معامله را مشخص می‌کند
+- سقف واقعی ریسک را تعیین می‌کند
+- حکم نهایی (Verdict) صادر می‌کند
+
+
+==============================
+۲. اصول غیرقابل نقض (Immutable Rules)
+==============================
+
+1. هیچ معامله‌ای بدون Verdict از NDS معتبر نیست
+2. Strategy فقط «پیشنهاد» می‌دهد، نه تصمیم
+3. Risk فقط در چارچوب Capacity مصوب NDS مجاز است
+4. Execution حق تفسیر تصمیم ندارد
+5. تمام خروجی‌های NDS باید قابل توضیح (Explainable) باشند
+
+نقض هر یک از این اصول، خروج از معماری X6 محسوب می‌شود.
+
+
+==============================
+۳. جایگاه NDS Core در معماری کلان
+==============================
+
+Market Data
+    ↓
+Raw Analysis / Indicators
+    ↓
+NDS Core   ← مرجع تصمیم
+    ↓
+Strategy Proposal
+    ↓
+NDS Verdict Gate
+    ↓
+Risk / Position / Stop
+    ↓
+Execution
+
+
+==============================
+۴. ساختار داخلی NDS Core
+==============================
+
+NDS Core دقیقاً شامل پنج موتور است:
+
+- MarketStateEngine
+- StructuralGeometryEngine
+- PressureEngine
+- CapacityEngine
+- JudgmentEngine
+
+هیچ موتور دیگری حق صدور تصمیم یا Verdict ندارد.
+
+
+==============================
+۵. قرارداد ورودی NDS Core
+==============================
+
+NDS فقط این اطلاعات را می‌پذیرد:
+
+- نماد معاملاتی
+- مجموعه تایم‌فریم‌ها
+- سری قیمت (OHLCV)
+- سری حجم
+- شاخص‌های نوسان
+- شرایط اجرا (اسپرد، لیکوییدیتی)
+- وضعیت پورتفوی (اکسپوژر، دراودان، همبستگی)
+
+Strategy اجازه تزریق داده دلخواه ندارد.
+
+
+==============================
+۶. قرارداد موتورهای داخلی
+==============================
+
+------------------------------
+۶.۱ MarketStateEngine
+------------------------------
+
+وظیفه:
+تشخیص اینکه آیا بازار اصولاً قابل معامله هست یا نه
+
+خروجی:
+- فاز بازار:
+  روند قوی | رنج پایدار | نوسانی شدید | انتقالی | مختلط
+- سطح نوسان: کم | نرمال | بالا
+- امتیاز انسجام بازار (۰ تا ۱)
+- tradable (درست / نادرست)
+
+اگر tradable = نادرست باشد:
+کل سیستم متوقف می‌شود.
+
+
+------------------------------
+۶.۲ StructuralGeometryEngine
+------------------------------
+
+وظیفه:
+تحلیل هندسه فرکتالی و هم‌راستایی چرخه‌ها
+
+خروجی:
+- تایم‌فریم غالب
+- امتیاز هم‌راستایی (۰ تا ۱)
+- پرچم فشردگی ساختار
+- ریسک انبساط ساختار (۰ تا ۱)
+- قدرت چرخه
+
+امتیاز پایین:
+محدودسازی Style مجاز
+
+
+------------------------------
+۶.۳ PressureEngine
+------------------------------
+
+وظیفه:
+اندازه‌گیری فشار تصمیم (نه جهت)
+
+خروجی:
+- فشار لانگ (۰ تا ۱)
+- فشار شورت (۰ تا ۱)
+- عدم‌تعادل (−۱ تا +۱)
+- سطح استرس: نرمال | بالا | بحرانی
+
+فشار بدون ظرفیت، بی‌اعتبار است.
+
+
+------------------------------
+۶.۴ CapacityEngine (خط قرمز سیستم)
+------------------------------
+
+وظیفه:
+تعیین سقف واقعی ریسک و اجازه اجرا
+
+بر اساس:
+- CVaR تطبیقی
+- شرایط بازار
+- دراودان
+- همبستگی پورتفوی
+- افت عملکرد
+
+خروجی:
+- حداکثر ریسک مجاز (USD)
+- حداکثر سایز پوزیشن
+- اجازه اجرا (درست / نادرست)
+- ضریب تضعیف (۰ تا ۱)
+
+این موتور حق وتوی کامل دارد.
+
+
+------------------------------
+۶.۵ JudgmentEngine (قاضی نهایی)
+------------------------------
+
+وظیفه:
+صدور حکم نهایی سیستم
+
+خروجی:
+- قبول یا رد معامله
+- Style مجاز:
+  روندی | رنج | اسکالپ | بدون معامله
+- امتیاز اطمینان (۰ تا ۱)
+- حساسیت زمانی (سریع | نرمال | کند)
+- دلایل ساختاری تصمیم
+
+
+==============================
+۷. خروجی رسمی NDS Core
+==============================
+
+تنها خروجی مجاز:
+
+NDSVerdictEnvelope:
+- MarketState
+- StructureState
+- PressureState
+- CapacityState
+- DecisionVerdict
+
+هیچ ماژولی حق دسترسی مستقیم به Stateها را ندارد.
+
+
+==============================
+۸. قوانین تعامل با سایر لایه‌ها
+==============================
+
+Strategy:
+- فقط پیشنهاد
+- بدون Override
+
+Risk:
+- فقط در چارچوب Capacity
+
+Execution:
+- فقط در صورت accept = True
+
+RL:
+- فقط بازخورد، بدون دخالت در تصمیم
+
+
+==============================
+۹. قانون طلایی سیستم
+==============================
+
+Strategy پیشنهاد می‌دهد
+NDS تصمیم می‌گیرد
+Execution اجرا می‌کند
+
+این قانون قابل مذاکره نیست.
+
+
+==============================
+۱۰. وضعیت سند
+==============================
+
+این سند نهایی است.
+تمام پیاده‌سازی‌ها موظف به تبعیت کامل هستند.
+
+
+
+📜 NDS Core – Official Contract
+Quant Decision Fabric
+System Reference Document (PDF‑Ready)
+
+صفحه عنوان
+Document Title:
+
+NDS Core – Official Contract
+
+Quant Decision Fabric for X6 System
+
+Role:
+
+Canonical System Contract (Single Source of Truth)
+
+Status:
+
+Frozen Architecture – Implementation Mandatory
+
+Scope:
+
+Strategy / Risk / RL / Execution / Orchestration
+
+1. Purpose of This Document
+This document defines the official, immutable contract of the NDS Core.
+
+Any component that violates this contract is considered non‑compliant and must not be connected to the system.
+
+**This is not documentation.
+
+This is authority.**
+
+2. Definition of NDS Core
+NDS Core is a Decision Permission Engine, not a signal generator.
+
+It exists to answer only one question:
+
+“Is the market structurally and probabilistically fit to accept this decision right now?”
+
+3. Non‑Negotiable Principles
+No trade may exist without an NDS Verdict
+Strategy proposes, NDS decides
+Risk is bounded strictly by Capacity
+Execution is obedient, not intelligent
+All decisions must be explainable
+Breaking any of the above exits the X6 architecture.
+
+4. Architectural Position
+Market Data
+
+↓
+
+Raw Analysis
+
+↓
+
+NDS Core ← Authority
+
+↓
+
+Strategy Proposal
+
+↓
+
+NDS Verdict Gate
+
+↓
+
+Risk / Size / Stop
+
+↓
+
+Execution
+
+5. Internal Structure of NDS Core
+NDS Core consists of exactly five engines.
+
+No more. No less.
+
+NDSCore
+
+├─ MarketStateEngine
+
+├─ StructuralGeometryEngine
+
+├─ PressureEngine
+
+├─ CapacityEngine
+
+└─ JudgmentEngine
+
+6. Engine Contracts
+6.1 MarketStateEngine
+Function:
+
+Determine whether the market is tradable at all.
+
+Outputs:
+
+phase:STRONG_TREND | STABLE_RANGE | HIGH_VOLATILITY | TRANSITION | MIXED
+volatility_level: LOW | NORMAL | HIGH
+coherence_score: 0 … 1
+tradable: Boolean
+If tradable = False, all downstream logic is blocked.
+
+6.2 StructuralGeometryEngine
+Function:
+
+Assess multi‑timeframe and fractal alignment.
+
+Outputs:
+
+dominant_timeframe
+alignment_score (0 … 1)
+compression_flag
+expansion_risk (0 … 1)
+cycle_strength
+Low alignment restricts allowed styles.
+
+6.3 PressureEngine
+Function:
+
+Measure directional pressure without issuing direction.
+
+Outputs:
+
+pressure_long (0 … 1)
+pressure_short (0 … 1)
+imbalance (−1 … +1)
+stress_level: NORMAL | ELEVATED | CRITICAL
+Pressure without capacity is invalid.
+
+6.4 CapacityEngine
+Function:
+
+Define hard risk and execution limits.
+
+Based on:
+
+Adaptive CVaR
+Market conditions
+Portfolio correlation
+Drawdown degradation
+Outputs:
+
+max_risk_usd
+max_position_size
+execution_allowed: Boolean
+degradation_factor (0 … 1)
+This engine has absolute veto power.
+
+6.5 JudgmentEngine
+Function:
+
+Issue the final decision verdict.
+
+Outputs (Final Verdict):
+
+accept: Boolean
+allowed_styles:TREND | RANGE | SCALP | NO_TRADE
+confidence_score (0 … 1)
+time_sensitivity: FAST | NORMAL | SLOW
+explanation (structured)
+7. Official Output Envelope
+Only one output is allowed from NDS Core:
+
+NDSVerdictEnvelope
+
+├─ MarketState
+
+├─ StructureState
+
+├─ PressureState
+
+├─ CapacityState
+
+└─ DecisionVerdict
+
+Direct access to internal states is forbidden.
+
+8. Interaction Rules
+Strategy: Proposal only
+Risk: Must obey Capacity
+Execution: Must obey Verdict
+RL: Feedback only, no control
+9. Golden Rule
+**Strategy suggests.
+
+NDS decides.
+
+Execution obeys.**
+
+This rule is architecturally enforced.
+
+10. Contract Status
+This document is Final.
+
+All implementations must conform.
+
+
+
+
+
+
+
+
+
+
+
+
+
